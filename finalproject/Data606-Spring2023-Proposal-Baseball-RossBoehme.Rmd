@@ -1,0 +1,152 @@
+---
+title: DATA 606 Data Project Proposal
+author: Ross Boehme
+---
+
+Proposal: Predicting Major League Baseball (MLB) salary based on statistic "Wins Above Replacemement" (WAR).
+Dataset: [MLB player-level data for each year 2005-2019](https://www.kaggle.com/datasets/wltjd54/mlb-players-dataset-from-2005-to-2019)
+
+### Data Preparation
+
+```{r}
+#Library imports
+library(tidyverse)
+library(Hmisc)
+library(scales)
+library(ggplot2)
+```
+
+```{r}
+#Uploaded data to personal Github for easier access than Kaggle, where it may be deleted, and requires a package for reading into R
+baseball <- read.csv("https://raw.githubusercontent.com/rossboehme/DATA606/main/finalproject/baseball_2005_to_2019.csv")
+head(baseball)
+```
+
+This dataset is relatively simple and clean, with 16,224 rows and 8 columns. Overview of my data preparation:
+1. Ensure correct data type for all fields (eg "Year" should be string not numeric)
+2. Don't remove any columns, because while not all have use for my linear regression, each has use in exploratory data analysis, or viewing the final results data from a different angle. 
+3. Change player names to lowercase letters separated by underscores. Provides standardization and names without spaces or caps are easier to navigate in R language. 
+4. Feature scaling/normalization of "experience" field. Experience could be a useful explanatory variable in my dataset, however it's currently the number of years each player has played in the MLB, which does not correlate correctly with player salary (dependent variable). Baseball player's performance tends to peak in the middle of their career, not when their "experience" is highest. Therefore I'll create an additional column for this dataset exp_adjusted which scales based on difference between median experience # of all players (proxy for when players are at their best) vs. actual experience number. exp_adjusted may be multicollinear with WAR, and therefore I'll eventually remove it, but including for now.
+
+```{r 1-datatypes}
+#Checking data types
+str(baseball)
+
+#Convering year to 
+baseball$year <- as.character(baseball$year)
+
+#Ensuring correct data types
+str(baseball)
+```
+```{r 3-name-cleaning}
+#Change spaces to underscores and making names lowercase
+baseball$name <- sub(" ", "_", baseball$name)
+baseball$name <- tolower(baseball$name)
+```
+
+```{r 4-normalizing-exp}
+#calculating average exp in MLB; creating additional column of diff between median exp in MLB and individual observation's exp
+mean_exp <- mean(baseball$exp)
+baseball <- baseball %>% mutate(exp_adjusted = abs(exp-mean_exp))
+```
+
+```{r}
+#Post data prep df head
+head(baseball)
+```
+### Research question 
+
+**You should phrase your research question in a way that matches up with the scope of inference your dataset allows for.**
+What is the relationship between a baseball player's Wins Above Replacement (WAR) statistic and their salary? For example, how much would increasing WAR by 1 be expected to increase a player's salary?
+
+
+### Cases 
+
+**What are the cases, and how many are there?**
+16,224 observations, one for each MLB player per season. One dependent variable (salary), with potentially three independent variables (previous salary, years of experience, WAR).
+
+
+### Data collection 
+
+**Describe the method of data collection.**
+Scraped from Baseball-Reference.com, the authoritative site on baseball stats, then uploaded to Kaggle. The scrape could potentially be inaccurate since I didn't perform it myself but the Kaggle uploader has no incentive to provide faulty data and their scraping abilities are likely better than mine. In addition, the data I've reviewed thus far align with my domain knowledge: highest players by WAR include Zach Greinke, Bryce Harper, Mookie Betts.
+
+
+### Type of study 
+
+**What type of study is this (observational/experiment)?**
+- Observational because this research does not change who is or isn't exposed to it. Data record what was seen during baseball seasons.
+
+
+
+### Data Source 
+
+**If you collected the data, state self-collected. If not, provide a citation/link.**
+MLB baseball player data to predict salary [Scraped from Baseball Reference pages from 2005-2019 then uploaded to Kaggle](https://www.kaggle.com/datasets/wltjd54/mlb-players-dataset-from-2005-to-2019)
+
+
+### Dependent Variable
+Player salary
+
+**What is the response variable? Is it quantitative or qualitative?**
+My response (dependent) variable is quantitative: salary.
+
+### Independent Variable(s)
+Wins Above Replacement (WAR) ("war"), previous salary ("lastsal"), years of experience playing MLB ("experience"), and normalized version of experience based on player performance ("exp_adjusted").
+
+### Relevant summary statistics 
+
+**Provide summary statistics for each the variables. Also include appropriate visualizations related to your research question (e.g. scatter plot, boxplots, etc). This step requires the use of R, hence a code chunk is provided below. Insert more code chunks as needed.**
+
+```{r}
+#Describing dependent aka Y aka outcome variable
+describe(baseball$sal)
+
+#Describing independent aka X aka explanatory variables
+describe(baseball$lastsal)
+describe(baseball$exp_adjusted)
+describe(baseball$war)
+
+#Correlation matrix to show association between explanatory variables and response variable, as well as explanatory variables to each other (multicollinearity)
+baseball_small <- baseball[,c('sal','lastsal','exp_adjusted','war')]
+baseball_cor <- cor(baseball_small)
+
+#showing teams with highest WAR (should be most successful teams)
+best_teams <- baseball %>% 
+  group_by(team) %>%
+  dplyr::summarise(avg_war = mean(war)) %>%
+  arrange(desc(avg_war))
+```
+
+```{r}
+#Showing relationship between various explanatory variables and the outcome "salary"
+war_vs_salary <- ggplot(baseball, aes(x = war, y = sal)) +
+    geom_point() +
+    ggtitle('WAR v. Salary') + 
+    labs(x="Wins Above Replacement (WAR)",y="Yearly Salary") + 
+    scale_y_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) + 
+    geom_smooth(method='lm', formula= y~x)
+
+exp_vs_salary <- ggplot(baseball, aes(x = exp, y = sal)) +
+    geom_point() +
+    ggtitle('Experience v. Salary') + 
+    labs(x="Player Experience in Years",y="Yearly Salary") + 
+    scale_y_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) + 
+    geom_smooth(method='lm', formula= y~x)
+
+expadjusted_vs_salary <- ggplot(baseball, aes(x = exp_adjusted, y = sal)) +
+    geom_point() +
+    ggtitle('Adjusted Experience v. Salary') + 
+    labs(x="Player Experience Diff w/ MLB Avg of 6.2 Yrs",y="Yearly Salary") + 
+    scale_y_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) + 
+    geom_smooth(method='lm', formula= y~x)
+
+expadjusted_vs_salary <- ggplot(baseball, aes(x = exp_adjusted, y = sal)) +
+    geom_point() +
+    ggtitle('Adjusted Experience v. Salary') + 
+    labs(x="Player Experience Diff w/ MLB Avg of 6.2 Yrs",y="Yearly Salary") + 
+    scale_y_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) + 
+    geom_smooth(method='lm', formula= y~x)
+
+cowplot::plot_grid(war_vs_salary,expadjusted_vs_salary,exp_vs_salary)
+```

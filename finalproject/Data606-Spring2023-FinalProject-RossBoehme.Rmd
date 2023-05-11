@@ -1,0 +1,322 @@
+---
+title: "DATA 606 Final Project"
+author: "Ross Boehme"
+---
+
+### Abstract
+Statistical analysis has revolutionized Major League Baseball (MLB) but there are still inefficiencies. Due to various subjective factors (marketability, negotiation skills, loyalty), and a labor union which favors veteran contracts, many players aren't paid proportionally to their on-field performance. While baseball performance is easily measurable thanks to the Wins Above Replacement (WAR) statistic, "years played" is more correlated with salary than WAR. This analysis reveals that multiple players are under or overpaid by 10s of millions of dollars, and that certain teams systematically over or underpay. Included in this investigation are action items to address these inefficiencies for players, teams, and union negotiators alike. The primary model explains salary as a function of experience and WAR. Conclusions include that contracts over $10M are almost always overpaying and for every increase in 1 of years played in the MLB, a typical player can expect a salary boost of \$809K.
+
+### Section 1.0 - Introduction
+Major League Baseball (MLB) is the second highest revenue sports league in the United States, having generated [$10.8B in revenue for 2022](https://www.forbes.com/sites/maurybrown/2023/01/10/mlb-sets-new-revenue-record-exceeding-108-billion-for-2022/?sh=115cde6177ee), second only to the [NFL's $18B](https://sports.yahoo.com/goodell-25-billion-revenue-goal-050137936.html). Roughly [45%](https://www.cbssports.com/mlb/news/mlb-lockout-three-reasons-why-the-players-union-wants-to-alter-baseballs-revenue-sharing-system/) of MLB's revenue goes towards its players' salaries. But, as with office work, baseball salaries are not perfectly correlated with performance. Unlike office workers, for MLB players we can quantify which players are overpaid, underpaid, and by how much using linear regression. 
+
+My project will use the player statistics Wins Above Replacement (WAR) and experience (years in MLB) to predict MLB salaries. WAR is a baseball statistic which captures a player's overall offensive and defensive performance in a single value, therefore it's an efficient way compare players.
+
+My research question is: *What is the relationship between a baseball player's Wins Above Replacement (WAR) statistic, their experience level, and their salary?* Here the independent variables are experience and WAR while the dependent variable is salary. For example, how much would increasing WAR or years of MLB played by 1 be expected to increase a player's salary? I will use this research question as a jumping off point for such data exploration as which players are the most overpaid or underpaid, and which teams tend to overpay or underpay.  
+
+### Section 2.0 - Data
+The MLB baseball player data I will use was scraped from Baseball Reference pages from 2005-2019 then [uploaded to Kaggle](https://www.kaggle.com/datasets/wltjd54/mlb-players-dataset-from-2005-to-2019). Baseball-Reference.com is the authoritative site on baseball stats. For documentation, and so users running this notebook don't need a Kaggle account, I've taken the data from Kaggle and uploaded it to my [Github here](https://github.com/rossboehme/DATA606/blob/main/finalproject/baseball_2005_to_2019.csv), where I'll access it in this RMD.
+
+Reading in dataset, showing dimensions, and head.
+```{r}
+baseball <- read.csv("https://raw.githubusercontent.com/rossboehme/DATA606/main/finalproject/baseball_2005_to_2019.csv")
+
+dim(baseball)
+
+head(baseball)
+```
+
+This Baseball-Reference data contains 16,224 observations, one for each MLB player per season. The 8 columns are: <ol>
+<li> team (which team a player played for)</li>
+<li> year (year of season played)</li>
+<li> name (name of player)</li>
+<li> war (Wins Above Replacement -- independent variable)</li>
+<li> sal (player salary in US dollars -- dependent variable)</li>
+<li> exp (years played in MLB, starting with 2 -- independent variable. "exp" starts with 2 to remove the many players who make brief appearances and may not even be on MLB contract (e.g. call up from minor leagues))</li>
+<li> playerid (unique player ID to differentiate between similar names)</li>
+<li> lastsal (salary the player earned their previous MLB season)</li>
+</ol>
+
+While I could use lastsal as an independent variable/predictor, it would ruin my model's ability to without bias answer "Which players are over or underpaid?" A given player's salary in their previous year would have a strong pearson coefficient with their salary in the current year. However the "previous salary" does not give insight into whether they merit that salary, like "war" and "exp" do.
+
+The only major changes I'll make to the dataset are: <ol>
+1) Focusing on one year rather than having "year" be an independent variable, since salaries generally increased YoY. While it could make for an interesting analysis to account for year in predicting salary, it would make a highly complicated model, with dummy variables for each year (2005-2019). In addition, if this model is to be used for current predictions (e.g. 2023 salaries), the older data are less useful.
+2) Removing players with $0 salary - they are still on their minor league contracts and have been called up to the majors for an extended period of time. No salary information is available and they would skew the data. </ol>
+
+#### 2.1 Data Cleaning
+This dataset is relatively simple and clean. Overview of my data preparation: 
+
+1. Ensure correct data type for all fields </li>
+2. Don't remove any columns, because while not all have use for my linear regression, each has use in exploratory data analysis, or viewing the final results data from a different angle.</li>
+3. Filtering for most recent year, 2019, as explained in section 2.0. After this filter is applied, I have 931 observations, each a unique player.
+
+```{r Data Cleaning}
+#Checking data types
+str(baseball)
+
+#Convering year to string
+baseball$year <- as.character(baseball$year)
+
+#Ensuring correct data types
+str(baseball)
+
+#Filter for only 2019, remove observations with 0 salary, then reset index
+baseball <- baseball[baseball$year == '2019',]
+baseball <- baseball[baseball$sal > 0,]
+rownames(baseball) <- NULL
+```
+
+### Part 3.0 - Exploratory data analysis
+
+Beginning with summary statistics in numeric form. I used a histogram and bar charts to show the distributions. <ul>
+- *Salary Distribution*: Long tail, left skewed. By far the largest number of players earn less than $1M. The primary reasons are 1) Baseball is a winner-take-all market, where the best players bring fans to games, thus they get paid more; 2) The salary distribution to some degree resembles the WAR (proxy for performance) distribution, with a long tail: A select number of players are much better than others and they are paid commensurately; 3) These small contracts are teams assessing/cycling through players to determine if they'll stay in the MLB to begin with -- many aren't signed past their first contract. 
+- *WAR Distribution*: Long tail, left skewed but with a degree of normality: WAR generally centers around 0. The distribution would likely look more normal if there wasn't survivorship bias: Those players with a low WAR are removed from their team while those with high WAR are understandably kept. 
+- *Experience distribution*: Long tail, left skewed. This is similar to the salary distribution because rookie contracts (typically less than $1M) are [6 years long](https://www.mlb.com/glossary/transactions/service-time). A drop in frequency is clear at the 6 year mark where teams opt not to sign players past their meager rookie deal. Also of note, as a reminder, the "exp" metric starts at 2 as to not include the many temporary players who are called up from the minors for a few games (who are likely not even on MLB contracts).</ul>
+
+```{r}
+library(dplyr)
+baseball %>%
+  select(sal, war, exp) %>%
+  summary() %>%
+  knitr::kable()
+```
+
+```{r}
+library(ggplot2)
+library(cowplot)
+
+sal_hist <- ggplot(data = baseball, aes(x = sal,fill=)) +
+  geom_histogram(fill="#F8B195") +
+  xlab("Salary Bin") +
+  ylab("Number of Players")  +
+  ggtitle("MLB Player Salaries 2019") + 
+  guides(fill="none") +
+  scale_x_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6),breaks=seq(0,50000000,5000000))  
+
+war_bar <- ggplot(data = baseball, aes(x = war,)) +
+  geom_bar(fill="#F67280") +
+  xlab("WAR") +
+  ylab("Number of Players")  +
+  ggtitle("MLB Player WAR 2019") + 
+  guides(fill="none")
+
+exp_bar <- ggplot(data = baseball, aes(x = exp)) +
+  geom_bar(fill="#C06C84") +
+  xlab("Experience (Years Played)") +
+  ylab("Number of Players")  +
+  ggtitle("MLB Player Experience 2019") + 
+  guides(fill="none") + 
+  scale_x_continuous(breaks=seq(0,20,1))  
+
+plot_grid(sal_hist,war_bar,exp_bar)
+```
+
+
+Showing salary by team. There are large discrepancies in payrolls. The Boston Red Sox (BOS), Chicago Cubs (CHC), and Washington Nationals (WSN) all spent more than \$175M on salaries, while nearly half (14) of all the 32 teams spent less than \$100M. The lowest spender, Toronto Blue Jays (TOR), payed out only ~$40M.
+```{r}
+library(dplyr)
+library(ggplot2)
+baseball %>%
+  group_by(team) %>%
+  dplyr::summarise(total_salaries = sum(sal)) %>%
+  dplyr::arrange(total_salaries) %>%
+  ggplot(aes(x= reorder(team,total_salaries), y = total_salaries)) +
+  geom_bar(stat='identity',fill="#008000") +
+  xlab("Team") +
+  ylab("Sum of Salaries")  +
+  ggtitle("MLB Salaries Per Team in 2019") + 
+  coord_flip() + 
+  guides(fill="none") +
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6)) 
+```
+
+Showing relationship between salary and WAR, including linear regression line. As you can see, there are many outliers, but there is a slight apparent trend that players with higher WAR earn a higher salary. If we look at only exp levels of 7+, where players are past their rookie contract, the trend is more apparent, however the sample size is more limited.
+```{r}
+sal_vs_war_all <- baseball %>%
+  ggplot(mapping = aes(x = war, y = sal)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Wins Above Replacement (WAR)") +
+  ylab("Salary")  +
+  ggtitle("MLB Player Salary vs. WAR - 2019") + 
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6))
+sal_vs_war_all
+
+sal_vs_war_7plus <- baseball %>%
+  filter(exp >= 7) %>%
+  ggplot(mapping = aes(x = war, y = sal)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Wins Above Replacement (WAR)") +
+  ylab("Salary")  +
+  ggtitle("7+ Year Exp Player Salary vs. WAR - 2019") + 
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6))
+sal_vs_war_7plus
+```
+
+Using a correlation matrix to assess which x variables (experience, WAR) have the highest pearson coefficient with my y variable (salary). It appears that experience ("exp") has a higher correlation with salary than WAR. This is an interesting finding because experience doesn't win baseball games while WAR does; there's an apparent inefficiency worth exploring.
+
+In addition, it's important to show that my two predictors are not collinear, which adds credibility to my regression coefficients and p-values.
+```{r}
+bball_small <- baseball[c('sal','exp','war')]
+cor(bball_small)
+```
+
+Graphing to show stronger correlation between salary vs. experience than the previous chart's salary vs. WAR. There are still many outliers, but hopefully I can create an effective model if I combine WAR + experience as independent variables. 
+```{r}
+sal_vs_exp <- baseball %>%
+  ggplot(mapping = aes(x = exp, y = sal)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Experience (Year in MLB)") +
+  ylab("Salary")  +
+  ggtitle("MLB Player Salary vs. Experience - 2019") + 
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6))
+sal_vs_exp
+```
+
+### Section 4.0 - Model Selection
+
+I will use lm, a linear regression model for my analysis because as shown in section 3 above, there is a generally linear relationship between my independent (WAR + experience) and dependent (salary) variables.
+
+Initializing models for evaluation. Using both WAR + experience as independent variables yields the highest R squared (0.4392) vs. just WAR (0.08752) or just exp (0.3827). The "combined" model has p-values well below 0.05 for both WAR and experience (<2e-16 for each).
+```{r}
+war_model <- lm(sal ~ war, data=baseball)
+summary(war_model)
+
+exp_model <- lm(sal ~ exp, data=baseball)
+summary(exp_model)
+
+combined_model <- lm(sal ~ war + exp, data=baseball)
+summary(combined_model)
+```
+However, we can't trust p-values and parameter estimates on their own. Before I perform an OLS regression analysis, I will need to assess whether the conditions of least squares regression are reasonable (using residual plots to evaluate).
+
+#### 4.1 Diagnostic Plots
+
+Conditions of least squares regression: 1) Linearity; 2) Nearly normal residuals; 3) Constant variability. Each is evaluated below. <ol>
+
+1. *Linearity*: Variability of the residuals is roughly linear across the distribution, with some curvature. There is a somewhat even spread of fitted values, though with one pattern along an imaginary line (those pesky rookie contracts).</li>
+
+2. *Nearly normal residuals*: Normal probability plot of the residuals below. The relationship between "theoretical" and "sample" appears generally linear. There is a skew at the highest and lowest values, however not enough to describe the relationship as non-linear.</li> 
+
+3. *Constant variability*: The constant variability condition states that the variability of points around the least squares line should be roughly constant. There was a mostly constant relationship between the two axes. Therefore, yes, the constant variability condition appears to be met. </ol>
+
+```{r}
+plot(combined_model)
+```
+
+#### 4.2 Interpreting Model Output
+
+```{r}
+summary(combined_model)
+```
+
+*Interpreting equation of line.* Assuming a base of \$-2,499,333 yearly salary at 0 exp and 0 war, for every increase of 1 in war, salary increases by \$808,969 and for every increase of 1 in exp, salary increases by \$977,319.
+\[
+  \hat{y} = -2,499,333  + 808,969 \times war\ + 977,319 \times exp 
+\]
+
+*Interpreting R-squared* The adjusted R-squared is 0.4392, which means that 43.92% of the dependent (salary) variable's variance can be explained. I'm focusing on adjusted R-squared rather than multiple R-squared because the latter is easily gamed: It always increases as you add more predictors to the model. Adjusted R squared has a penalty for the number of predictors, so that's what I would focus on in improving this model.
+
+#### 4.3 - Making Predictions Using Model
+
+I'll add columns to the data to calculate y-hat and the residuals for each observation. I can use these new columns to determine which are the most overpaid players and which teams tend to overpay the most.
+
+```{r}
+y_interc <- -2499333
+war_coef <- 808969
+exp_coef <- 977319
+
+baseball <- baseball %>%
+  mutate(expected_sal = y_interc + (war_coef*war) + (exp_coef*exp)) %>%
+  mutate(residual_sal = sal - expected_sal) %>%
+  mutate(pay_status = if_else(residual_sal >=0, "Overpaid","Underpaid" ))
+```
+
+Charting players' actual v. expected salary, with "expected" based on my lm model. As you can see, once a player receives a salary of \$10M or more, the vast majority of them are overpaid relative to their experience and WAR. There are only 2 players (1.7%) who are "underpaid" while 117 (98.3%) are "overpaid." This shows an inefficiency for potential further exploration: high salaries ($10M+) are almost never worth it in terms of the WAR and experience you're buying. 
+```{r}
+actual_v_exp_chart <- ggplot(baseball, aes(x = expected_sal, y = sal, colour=pay_status)) +
+    geom_point() +
+    ggtitle('MLB Players\' Actual v. Expected Salary 2019') + 
+    labs(x="Expected Player Salary",y="Actual Salary") + 
+    scale_y_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) + 
+    scale_x_continuous(labels = scales::dollar_format(scale = .000001,suffix = "M")) +
+  guides(fill=guide_legend(title="Pay Status"))
+
+actual_v_exp_chart
+```
+
+To drive home the point that \$10M+ salary players are overpaid, this histogram shows that a much higher proportion of sub-\$10M salaries are underpaid.
+```{r}
+sal_status_hist <- ggplot(data = baseball, aes(x = sal,fill=pay_status)) +
+  geom_histogram(bins=10) +
+  xlab("Salary Bin") +
+  ylab("Number of Players")  +
+  ggtitle("MLB Player Salaries 2019") + 
+  scale_x_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6),breaks=seq(0,50000000,10000000))
+
+sal_status_hist
+```
+
+The three most underpaid and overplayed players in the MLB are graphed below. All underpaid players should attempt to renegotiate as soon as possible or sign with a different team because their opportunity cost is equal to the delta between expected and actual salary (+$10M for the three most underpaid). Overpaid players are in a monetarily comfortable position because all [MLB contracts are guaranteed](https://littleballparks.com/are-mlb-contracts-guaranteed/); They don't have to worry about being dropped from the team. However, for every overpaid player, there is an underpaid player, and therefore overpaid players may come under scrutiny from their teammates and the media. 
+
+```{r}
+baseball %>%
+  group_by(name) %>%
+  dplyr::summarise(residual_sal = sum(residual_sal)) %>%
+  dplyr::arrange(residual_sal) %>%
+  filter(dense_rank(residual_sal) <= 3 | dense_rank(desc(residual_sal)) <= 3) %>%
+  ggplot(aes(x= reorder(name,residual_sal), y = residual_sal)) +
+  geom_bar(stat='identity',fill="#950ACA") +
+  xlab("Player") +
+  ylab("Salary Compared to Expected")  +
+  ggtitle("3 Most Overpaid and Underpaid MLB Players in 2019") + 
+  guides(fill="none") +
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6)) 
+```
+
+The three teams which underpay and overpay the most in MLB are graphed below. Overpaying teams should potentially not renew their overpaying contracts. It's not a sustainable way to win unless the marketing of big names brings in proportional revenue. Underpaying teams risk developing a bad reputation, and are likely not paying well enough to achieve a decent season record. This poor play may be deliberate as "tanking" has come into fashion for pro sports.
+
+```{r}
+baseball %>%
+  group_by(team) %>%
+  dplyr::summarise(residual_sal = sum(residual_sal)) %>%
+  dplyr::arrange(residual_sal) %>%
+  filter(dense_rank(residual_sal) <= 3 | dense_rank(desc(residual_sal)) <= 3) %>%
+  ggplot(aes(x= reorder(team,residual_sal), y = residual_sal)) +
+  geom_bar(stat='identity',fill="#BCCA0A") +
+  xlab("Team") +
+  ylab("Salary Compared to Expected")  +
+  ggtitle("3 Most Overpaid and Underpaid MLB Teams in 2019") + 
+  guides(fill="none") +
+  scale_y_continuous(labels = scales::dollar_format(prefix="$", suffix = "M",scale = 1e-6)) 
+```
+
+### Section 5.0 - Conclusions
+<ul>- MLB players aren't always paid what they're worth based on performance and experience. Players can use this inefficiency to better negotiate their contracts, teams can use it to better evaluate players' value, and the MLB union arbitrators can use it to inform max and min salaries.
+- Salary levels are much more correlated with experience (r = 0.62) than with WAR, a proxy for performance (r = 0.30). This means younger players tend to be underpaid for their skills. (To some degree, caused by rookie salaries lasting six years.) 
+- The best linear regression model to predict player salary (dependent variable) is based on both experience and WAR (independent variables). These two predictors are both statistically significant (p = < 2.2e-16) and explain roughly 44% of salary (per adjusted R-squared).
+- The linear regression model I created was: \[\hat{y} = -2,499,333  + 808,969 \times war\ + 977,319 \times exp \]
+<ul>+ In written terms this translates to: Predicted yearly salary = base of \$-2,499,333 at 0 exp and 0 war. For every increase of 1 in war, salary increases by \$808,969. For every increase of 1 in exp, salary increases by \$977,319.</ul>
+- Player contracts over \$10M almost always overpay relative to the experience and WAR you could find for a player paid less than \$10M.
+- While all teams and players should understand the aforementioned inefficiencies, the most overpaid and underpaid players and teams should especially take heed to prepare for negotiations:<ul>
++ The most underpaid players (e.g. Francisco Liriano, Oliver Perez, and Hanley Ramirez) should aggressively pursue new contracts, as there's a high opportunity cost for their underpayment. 
++ The most overpaid players (e.g. David Price, Max Scherzer, Stephen Strasburg) should prepare counterpoints in case the media brings up their contract figures relative to their experience + WAR. These players could emphasize their less quantifiable impact:  Driving attendance, building team chemistry, mentoring younger players.
++ The most underpaying teams should make an effort to balance winning with underpayment. While underpaid rosters can win, severe underpayment likely means a) The team is not paying for enough baseline WAR or experience to win anything substantial; b) Team morale can be low if players know they're underpaid; c) Free agents likely won't broach negotiation if a team is infamous for underpayment. 
++ The most overpaying teams should reflect on their current contracts' merits and likely not re-sign with their "overpaid" players.</ul></ul>
+
+
+#### 5.1 Limitations
+<ul>- My model is based on one season of data. The salary cap, baseball's revenues, and other important factors could change YoY, thus impacting salaries.
+- My model included two explanatory variables (WAR, experience) that could only explain ~44% of the outcome (salary). Therefore expected salary shouldn't be taken as absolute. The regression output acknowledges standard errors of tens of thousands of dollars, which could be substantial to a lower-paid player.
+- There are certainly inputs which could improve the model's adjusted R-squared. Options to be explored include: Team, injury history, alternative definitions of WAR, marketability (could be quantified with social followers), etc.
+- My listings of the most overpaid and underpaid players and teams are based on one season only. Their performance and experience varies YoY, and it can sometimes be strategic for teams to underpay certain years to "tank" and save up for a World Series run. 
+
+
+### References
+<ul>- [Data source on Kaggle via Baseball Reference](https://www.kaggle.com/datasets/wltjd54/mlb-players-dataset-from-2005-to-2019)
+- [MLB total revenue](https://www.forbes.com/sites/maurybrown/2023/01/10/mlb-sets-new-revenue-record-exceeding-108-billion-for-2022/?sh=115cde6177ee)
+- [NFL revenue](https://sports.yahoo.com/goodell-25-billion-revenue-goal-050137936.html)
+- [MLB revenue breakdown](https://www.cbssports.com/mlb/news/mlb-lockout-three-reasons-why-the-players-union-wants-to-alter-baseballs-revenue-sharing-system/)
+- [MLB rookie contracts](https://www.mlb.com/glossary/transactions/service-time)
+- [MLB contracts are guaranteed](https://littleballparks.com/are-mlb-contracts-guaranteed/)
